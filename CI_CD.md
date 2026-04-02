@@ -8,7 +8,7 @@
   - Frontend: install, build
 
 - `.github/workflows/cd.yml`
-  - Runs after `CI` finishes successfully on the `main` branch
+  - Runs after `CI` finishes successfully on the `develop` branch
   - Builds backend and frontend
   - Uploads build artifacts (`backend-dist`, `frontend-dist`)
 
