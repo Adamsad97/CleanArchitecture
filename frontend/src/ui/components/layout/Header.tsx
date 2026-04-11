@@ -1,6 +1,10 @@
 type HeaderProps = {
   cartCount: number;
   favoritesCount: number;
+  showClientCounters?: boolean;
+  clientView?: "SHOP" | "ORDERS";
+  onOpenShop?: () => void;
+  onOpenOrders?: () => void;
   searchPlaceholder: string;
   searchValue: string;
   onSearchChange: (value: string) => void;
@@ -12,6 +16,10 @@ type HeaderProps = {
 export function Header({
   cartCount,
   favoritesCount,
+  showClientCounters = true,
+  clientView,
+  onOpenShop,
+  onOpenOrders,
   searchPlaceholder,
   searchValue,
   onSearchChange,
@@ -19,12 +27,15 @@ export function Header({
   userRoleLabel,
   onLogout,
 }: HeaderProps) {
+  const isRestaurantRole = userRoleLabel === "Restaurant";
+
   return (
     <div className="row" style={{ marginBottom: 12 }}>
-      <div>
-        <div style={{ fontSize: 20, fontWeight: 700 }}>EcoEats</div>
-        <div className="muted">
-          Connecte: {userDisplayName} ({userRoleLabel})
+      <div className="header-brand">
+        <div className="header-title">EcoEats</div>
+        <div className={`header-identity ${isRestaurantRole ? "restaurant" : ""}`}>
+          <span className="header-user-name">{userDisplayName}</span>
+          {!isRestaurantRole ? <span className="header-role-chip">{userRoleLabel}</span> : null}
         </div>
       </div>
       <div className="header-right">
@@ -35,8 +46,26 @@ export function Header({
           value={searchValue}
           onChange={(e) => onSearchChange(e.target.value)}
         />
-        <div className="pill">Panier: {cartCount} article(s)</div>
-        <div className="pill">Favoris: {favoritesCount}</div>
+        {showClientCounters && onOpenShop ? (
+          <button
+            className={clientView === "SHOP" ? "" : "secondary"}
+            onClick={onOpenShop}
+            type="button"
+          >
+            Accueil
+          </button>
+        ) : null}
+        {showClientCounters && onOpenOrders ? (
+          <button
+            className={clientView === "ORDERS" ? "" : "secondary"}
+            onClick={onOpenOrders}
+            type="button"
+          >
+            Mes commandes
+          </button>
+        ) : null}
+        {showClientCounters ? <div className="pill">Panier: {cartCount} article(s)</div> : null}
+        {showClientCounters ? <div className="pill">Favoris: {favoritesCount}</div> : null}
         <button className="secondary" onClick={onLogout} type="button">
           Deconnexion
         </button>

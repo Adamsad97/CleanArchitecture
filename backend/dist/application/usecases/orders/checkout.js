@@ -10,23 +10,28 @@ export async function checkout(deps, input) {
     if (!restaurant)
         return Result.err(new RestaurantNotFoundError());
     const menuItemsById = new Map();
-    for (const item of await deps.menus.listMenuItems(cart.restaurantId)) {
-        menuItemsById.set(item.id, { name: item.name, priceCents: item.priceCents, dailyStock: item.dailyStock });
+    for (const menuItem of await deps.menus.listMenuItems(cart.restaurantId)) {
+        menuItemsById.set(menuItem.id, {
+            name: menuItem.name,
+            priceCents: menuItem.priceCents,
+        });
     }
     for (const cartItem of cart.items) {
-        const mi = menuItemsById.get(cartItem.menuItemId);
-        if (!mi)
-            return Result.err(new MenuItemOutOfStockError());
-        if (mi.dailyStock <= 0)
-            return Result.err(new MenuItemOutOfStockError());
-        if (mi.dailyStock < cartItem.quantity)
+        const menuItemSnapshot = menuItemsById.get(cartItem.menuItemId);
+        if (!menuItemSnapshot)
             return Result.err(new MenuItemOutOfStockError());
     }
     const itemsTotalCents = cart.items.reduce((sum, i) => sum + i.unitPriceCents * i.quantity, 0);
-    const km = await deps.distance.distanceKm(restaurant.location, input.deliveryAddress);
-    const deliveryFeeCents = deps.pricing.deliveryBaseFeeCents + Math.round(km * deps.pricing.deliveryPerKmCents);
+    const fulfillmentType = input.fulfillmentType ?? "DELIVERY";
+    const paymentMethod = input.paymentMethod ?? "CARD";
+    let deliveryFeeCents = 0;
+    if (fulfillmentType === "DELIVERY") {
+        const deliveryDistanceKm = await deps.distance.distanceKm(restaurant.location, input.deliveryAddress);
+        deliveryFeeCents =
+            deps.pricing.deliveryBaseFeeCents + Math.round(deliveryDistanceKm * deps.pricing.deliveryPerKmCents);
+    }
     const serviceFeeCents = Math.round(itemsTotalCents * deps.pricing.serviceFeeRate);
-    const tipCents = input.tipCents ?? 0;
+    const tipCents = fulfillmentType === "DELIVERY" ? input.tipCents ?? 0 : 0;
     const totalCents = itemsTotalCents + deliveryFeeCents + serviceFeeCents + tipCents;
     const orderId = deps.ids.newId();
     const invoiceId = deps.ids.newId();
@@ -34,15 +39,17 @@ export async function checkout(deps, input) {
         id: orderId,
         clientId: input.clientId,
         restaurantId: cart.restaurantId,
+        fulfillmentType,
+        paymentMethod,
         deliveryAddress: input.deliveryAddress,
         status: "PAID",
-        lines: cart.items.map((ci) => {
-            const mi = menuItemsById.get(ci.menuItemId);
+        lines: cart.items.map((cartLineItem) => {
+            const menuItemSnapshot = menuItemsById.get(cartLineItem.menuItemId);
             return {
-                menuItemId: ci.menuItemId,
-                name: mi.name,
-                unitPriceCents: ci.unitPriceCents,
-                quantity: ci.quantity,
+                menuItemId: cartLineItem.menuItemId,
+                name: menuItemSnapshot.name,
+                unitPriceCents: cartLineItem.unitPriceCents,
+                quantity: cartLineItem.quantity,
             };
         }),
         prepTimeMinutes: null,
@@ -54,35 +61,29 @@ export async function checkout(deps, input) {
         invoiceId,
         courierId: null,
     };
-    await deps.payments.simulatePayment({ orderId, amountCents: totalCents });
-    await deps.orders.create(order);
-    // Décrémentation du stock journalier des plats achetés
-    for (const line of order.lines) {
-        const current = await deps.menus.getMenuItem(line.menuItemId);
-        if (!current || current.dailyStock < line.quantity) {
-            return Result.err(new MenuItemOutOfStockError());
-        }
-        await deps.menus.upsertMenuItem({
-            ...current,
-            dailyStock: current.dailyStock - line.quantity,
-        });
+    try {
+        await deps.payments.simulatePayment({ orderId, amountCents: totalCents, paymentMethod });
+        await deps.orders.create(order);
+        const invoice = {
+            id: invoiceId,
+            orderId,
+            createdAt: deps.clock.nowIso(),
+            lines: [
+                ...order.lines.map((orderLine) => ({
+                    label: `${orderLine.quantity} x ${orderLine.name}`,
+                    amountCents: orderLine.unitPriceCents * orderLine.quantity,
+                })),
+                ...(deliveryFeeCents > 0 ? [{ label: "Frais de livraison", amountCents: deliveryFeeCents }] : []),
+                { label: "Frais de service", amountCents: serviceFeeCents },
+                ...(tipCents > 0 ? [{ label: "Pourboire", amountCents: tipCents }] : []),
+            ],
+            totalCents,
+        };
+        await deps.invoices.create(invoice);
+        await deps.carts.clearCart(input.clientId);
     }
-    const invoice = {
-        id: invoiceId,
-        orderId,
-        createdAt: deps.clock.nowIso(),
-        lines: [
-            ...order.lines.map((l) => ({
-                label: `${l.quantity} x ${l.name}`,
-                amountCents: l.unitPriceCents * l.quantity,
-            })),
-            { label: "Frais de livraison", amountCents: deliveryFeeCents },
-            { label: "Frais de service", amountCents: serviceFeeCents },
-            ...(tipCents > 0 ? [{ label: "Pourboire", amountCents: tipCents }] : []),
-        ],
-        totalCents,
-    };
-    await deps.invoices.create(invoice);
-    await deps.carts.clearCart(input.clientId);
+    catch (error) {
+        throw error;
+    }
     return Result.ok({ orderId, invoiceId });
 }

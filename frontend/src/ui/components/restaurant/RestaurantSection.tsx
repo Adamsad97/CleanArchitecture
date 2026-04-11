@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { extractRestaurantName } from "../../utils/restaurant-name";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import type { MenuItem, Restaurant } from "../../../api/ecoeats-api";
 
 type RestaurantSectionProps = {
@@ -21,54 +22,9 @@ function euros(cents: number): string {
   return (cents / 100).toFixed(2) + " €";
 }
 
-function scoreFromId(id: string): number {
-  return id.split("").reduce((score, character) => score + character.charCodeAt(0), 0);
-}
-
-function deliveryFeeFromId(id: string): string {
-  const score = scoreFromId(id);
-  const fee = ((score % 6) + 1) * 0.5;
-  return `${fee.toFixed(2).replace(".", ",")} €`;
-}
-
-function etaFromId(id: string): string {
-  const score = scoreFromId(id);
-  return `${14 + (score % 18)} min`;
-}
-
-function ratingFromId(id: string): string {
-  const score = scoreFromId(id);
-  const rating = 4 + (score % 10) / 10;
-  return rating.toFixed(1);
-}
-
-function reviewsFromId(id: string): string {
-  const score = scoreFromId(id);
-  const count = 180 + (score % 1200);
-  if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}k+`;
-  }
-  return `${count}+`;
-}
-
-function imageUrlFromRestaurant(restaurant: Restaurant): string {
-  return `https://picsum.photos/seed/ecoeats-${encodeURIComponent(restaurant.id)}/900/520`;
-}
-
-function imageUrlFromMenuItem(menuItemId: string): string {
-  return `https://picsum.photos/seed/ecoeats-menu-${encodeURIComponent(menuItemId)}/500/500`;
-}
-
-function hasPromo(id: string): boolean {
-  return scoreFromId(id) % 2 === 0;
-}
-
-function isSponsored(id: string): boolean {
-  return scoreFromId(id) % 5 === 0;
-}
-
 function brandLabel(name: string): string {
-  return name
+  const cleanName = extractRestaurantName(name);
+  return cleanName
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
@@ -76,54 +32,8 @@ function brandLabel(name: string): string {
     .join("");
 }
 
-function brandLogoUrl(name: string): string | null {
-  const normalizedName = name.toLowerCase();
-
-  if (normalizedName.includes("intermarche")) {
-    return "https://upload.wikimedia.org/wikipedia/fr/thumb/b/b8/Logo_Intermarch%C3%A9.svg/512px-Logo_Intermarch%C3%A9.svg.png";
-  }
-  if (normalizedName.includes("monoprix")) {
-    return "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Monoprix_2013.svg/512px-Monoprix_2013.svg.png";
-  }
-  if (normalizedName.includes("carrefour")) {
-    return "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9d/Carrefour_logo.svg/512px-Carrefour_logo.svg.png";
-  }
-  if (normalizedName.includes("pharmacie")) {
-    return "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Green_cross.svg/512px-Green_cross.svg.png";
-  }
-
-  return null;
-}
-
-function brandThemeKey(name: string): "intermarche" | "monoprix" | "carrefour" | "pharmacie" | "generic" {
-  const normalizedName = name.toLowerCase();
-
-  if (normalizedName.includes("intermarche")) return "intermarche";
-  if (normalizedName.includes("monoprix")) return "monoprix";
-  if (normalizedName.includes("carrefour")) return "carrefour";
-  if (normalizedName.includes("pharmacie")) return "pharmacie";
-  return "generic";
-}
-
-function productCategory(menuItem: MenuItem): "Epicerie" | "Boissons" | "Sante & Beaute" | "Snacking" {
-  const haystack = `${menuItem.name} ${menuItem.description}`.toLowerCase();
-
-  if (haystack.includes("eau") || haystack.includes("jus") || haystack.includes("soda")) {
-    return "Boissons";
-  }
-  if (
-    haystack.includes("pharma") ||
-    haystack.includes("hygiene") ||
-    haystack.includes("beaute") ||
-    haystack.includes("sante")
-  ) {
-    return "Sante & Beaute";
-  }
-  if (haystack.includes("chocolat") || haystack.includes("snack") || haystack.includes("gateau")) {
-    return "Snacking";
-  }
-
-  return "Epicerie";
+function locationLabel(restaurant: Restaurant): string {
+  return `Coordonnees: ${restaurant.location.lat.toFixed(4)}, ${restaurant.location.lng.toFixed(4)}`;
 }
 
 export function RestaurantSection({
@@ -141,8 +51,7 @@ export function RestaurantSection({
   onCloseRestaurant,
   onAddToCart,
 }: RestaurantSectionProps) {
-  const productsStripRef = useRef<HTMLDivElement | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string>("Tous");
+  const [selectedMenuItemId, setSelectedMenuItemId] = useState<string | null>(null);
 
   const isCartLockedToAnotherRestaurant =
     cartRestaurantId !== null && cartRestaurantId !== selectedRestaurantId;
@@ -157,7 +66,7 @@ export function RestaurantSection({
     
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((restaurant) => restaurant.name.toLowerCase().includes(query));
+      filtered = filtered.filter((restaurant) => extractRestaurantName(restaurant.name).toLowerCase().includes(query));
     }
     
     return filtered;
@@ -171,57 +80,29 @@ export function RestaurantSection({
   const isSelectedRestaurantFavorite =
     selectedRestaurant !== null && favoriteRestaurantIds.includes(selectedRestaurant.id);
 
-  const categories = useMemo(() => {
-    const orderedCategories = ["Tous", ...Array.from(new Set(menu.map((menuItem) => productCategory(menuItem))))];
-    return orderedCategories;
-  }, [menu]);
-
   const filteredMenu = useMemo(() => {
-    let filtered = menu;
-    
-    if (selectedCategory !== "Tous") {
-      filtered = filtered.filter((menuItem) => productCategory(menuItem) === selectedCategory);
+    if (!searchQuery.trim() || !activeRestaurantId) return menu;
+    const query = searchQuery.toLowerCase();
+    return menu.filter(
+      (menuItem) =>
+        menuItem.name.toLowerCase().includes(query) ||
+        menuItem.description?.toLowerCase().includes(query)
+    );
+  }, [menu, searchQuery, activeRestaurantId]);
+
+  const restaurantCoverImageByRestaurantId = useMemo(() => {
+    const covers: Record<string, string> = {};
+
+    for (const menuItem of menu) {
+      if (covers[menuItem.restaurantId]) continue;
+      const customImage = menuItem.imageUrl;
+      if (customImage) {
+        covers[menuItem.restaurantId] = customImage;
+      }
     }
-    
-    if (searchQuery.trim() && activeRestaurantId) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (menuItem) =>
-          menuItem.name.toLowerCase().includes(query) ||
-          menuItem.description?.toLowerCase().includes(query)
-      );
-    }
-    
-    return filtered;
-  }, [menu, selectedCategory, searchQuery, activeRestaurantId]);
 
-  const menuGroupedByCategory = useMemo(() => {
-    return filteredMenu.reduce<Record<string, MenuItem[]>>((accumulator, menuItem) => {
-      const category = productCategory(menuItem);
-      if (!accumulator[category]) accumulator[category] = [];
-      accumulator[category].push(menuItem);
-      return accumulator;
-    }, {});
-  }, [filteredMenu]);
-
-  useEffect(() => {
-    setSelectedCategory("Tous");
-  }, [selectedRestaurantId]);
-
-  const promotedRestaurants = useMemo(
-    () => visibleRestaurants.filter((restaurant) => hasPromo(restaurant.id)),
-    [visibleRestaurants]
-  );
-
-  const topRatedRestaurants = useMemo(
-    () =>
-      [...visibleRestaurants]
-        .sort((leftRestaurant, rightRestaurant) => {
-          return Number(ratingFromId(rightRestaurant.id)) - Number(ratingFromId(leftRestaurant.id));
-        })
-        .slice(0, 6),
-    [visibleRestaurants]
-  );
+    return covers;
+  }, [menu]);
 
   function handleCardKeyDown(event: KeyboardEvent<HTMLElement>, restaurantId: string) {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -229,18 +110,13 @@ export function RestaurantSection({
     onOpenRestaurant(restaurantId);
   }
 
-  function scrollProducts(direction: "left" | "right") {
-    const productsStrip = productsStripRef.current;
-    if (!productsStrip) return;
-
-    const delta = direction === "left" ? -320 : 320;
-    productsStrip.scrollBy({ left: delta, behavior: "smooth" });
+  function openProductDetails(menuItemId: string) {
+    setSelectedMenuItemId((current) => (current === menuItemId ? null : menuItemId));
   }
 
   function renderRestaurantCard(restaurant: Restaurant) {
     const isSelected = restaurant.id === selectedRestaurantId;
     const isFavorite = favoriteRestaurantIds.includes(restaurant.id);
-    const logoUrl = brandLogoUrl(restaurant.name);
 
     return (
       <article
@@ -252,18 +128,18 @@ export function RestaurantSection({
         onKeyDown={(event) => handleCardKeyDown(event, restaurant.id)}
       >
         <div className="restaurant-market-cover-wrap">
-          <img
-            className="restaurant-market-cover"
-            src={imageUrlFromRestaurant(restaurant)}
-            alt={restaurant.name}
-            loading="lazy"
-          />
+          {restaurantCoverImageByRestaurantId[restaurant.id] ? (
+            <img
+              className="restaurant-market-cover"
+              src={restaurantCoverImageByRestaurantId[restaurant.id]}
+              alt={restaurant.name}
+              loading="lazy"
+            />
+          ) : (
+            <div className="restaurant-market-cover restaurant-image-placeholder">Image non disponible</div>
+          )}
           <span className="restaurant-brand-chip">
-            {logoUrl ? (
-              <img className="restaurant-brand-logo" src={logoUrl} alt={restaurant.name} loading="lazy" />
-            ) : (
-              <span>{brandLabel(restaurant.name)}</span>
-            )}
+            <span>{brandLabel(restaurant.name)}</span>
           </span>
           <button
             type="button"
@@ -276,21 +152,10 @@ export function RestaurantSection({
           >
             {isFavorite ? "♥" : "♡"}
           </button>
-          {hasPromo(restaurant.id) ? (
-            <span className="restaurant-badge promo">Articles en promotion</span>
-          ) : null}
-          {isSponsored(restaurant.id) ? (
-            <span className="restaurant-badge sponsored">Sponsorise</span>
-          ) : null}
         </div>
         <div className="restaurant-market-content">
-          <div className="restaurant-market-title">{restaurant.name}</div>
-          <div className="muted">
-            Frais de livraison: {deliveryFeeFromId(restaurant.id)} • {etaFromId(restaurant.id)}
-          </div>
-          <div className="restaurant-market-rating">
-            {ratingFromId(restaurant.id)}★ ({reviewsFromId(restaurant.id)})
-          </div>
+          <div className="restaurant-market-title">{extractRestaurantName(restaurant.name)}</div>
+          <div className="muted">{locationLabel(restaurant)}</div>
         </div>
       </article>
     );
@@ -310,22 +175,6 @@ export function RestaurantSection({
               {showOnlyFavorites ? "Tous les restaurants" : "Favoris uniquement"}
             </button>
           </div>
-
-          <section className="restaurant-section-block">
-            <div className="restaurant-section-title">En promotion</div>
-            <div className="restaurants-grid" style={{ marginBottom: 8 }}>
-              {(promotedRestaurants.length > 0 ? promotedRestaurants : visibleRestaurants)
-                .slice(0, 6)
-                .map(renderRestaurantCard)}
-            </div>
-          </section>
-
-          <section className="restaurant-section-block">
-            <div className="restaurant-section-title">Les mieux notes</div>
-            <div className="restaurants-grid" style={{ marginBottom: 8 }}>
-              {topRatedRestaurants.map(renderRestaurantCard)}
-            </div>
-          </section>
 
           <section className="restaurant-section-block">
             <div className="restaurant-section-title">Tous les restaurants</div>
@@ -352,19 +201,11 @@ export function RestaurantSection({
 
           {selectedRestaurant ? (
             <div className="restaurant-detail-shell" style={{ marginBottom: 16 }}>
-              <div className={`restaurant-detail-banner ${brandThemeKey(selectedRestaurant.name)}`} />
+              <div className="restaurant-detail-banner generic" />
 
               <div className="restaurant-detail-header-row">
                 <div className="restaurant-detail-logo">
-                  {brandLogoUrl(selectedRestaurant.name) ? (
-                    <img
-                      className="restaurant-detail-logo-image"
-                      src={brandLogoUrl(selectedRestaurant.name) as string}
-                      alt={selectedRestaurant.name}
-                    />
-                  ) : (
-                    brandLabel(selectedRestaurant.name)
-                  )}
+                  {brandLabel(selectedRestaurant.name)}
                 </div>
                 <div className="restaurant-detail-actions">
                   <button
@@ -375,86 +216,103 @@ export function RestaurantSection({
                   >
                     {isSelectedRestaurantFavorite ? "♥" : "♡"}
                   </button>
-                  <button type="button" className="restaurant-favorite-button detail" aria-label="Plus d'options">
-                    ...
-                  </button>
                 </div>
               </div>
 
               <div className="restaurant-detail-content">
                 <div className="restaurant-detail-info">
-                  <div className="restaurant-detail-name">{selectedRestaurant.name}</div>
+                  <div className="restaurant-detail-name">{extractRestaurantName(selectedRestaurant.name)}</div>
                   <div className="muted" style={{ marginBottom: 6 }}>
-                    Arrivee estimee: {etaFromId(selectedRestaurant.id)} • Frais de livraison: {deliveryFeeFromId(selectedRestaurant.id)}
-                  </div>
-                  <div className="restaurant-market-rating" style={{ marginBottom: 6 }}>
-                    {ratingFromId(selectedRestaurant.id)}★ ({reviewsFromId(selectedRestaurant.id)} notes)
-                  </div>
-                  <div className="muted" style={{ marginBottom: 10 }}>
-                    86 Avenue Rouget De Lisle, Vitry-sur-Seine
-                  </div>
-                  <div className="restaurant-mode-toggle">
-                    <span className="restaurant-mode-pill active">Livraison</span>
-                    <span className="restaurant-mode-pill">A emporter</span>
+                    {locationLabel(selectedRestaurant)}
                   </div>
 
-                  <div className="restaurant-category-list">
-                    {categories.map((category) => (
-                      <button
-                        key={category}
-                        type="button"
-                        className={`restaurant-category-chip ${selectedCategory === category ? "active" : ""}`}
-                        onClick={() => setSelectedCategory(category)}
-                      >
-                        {category}
-                      </button>
-                    ))}
-                  </div>
                 </div>
 
                 <div className="restaurant-detail-products">
                   <div className="restaurant-detail-products-header">
                     <div className="restaurant-section-title" style={{ marginBottom: 0 }}>
-                      A decouvrir
-                    </div>
-                    <div className="restaurant-carousel-controls">
-                      <button
-                        type="button"
-                        className="secondary restaurant-carousel-button"
-                        onClick={() => scrollProducts("left")}
-                        aria-label="Produits precedents"
-                      >
-                        ←
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary restaurant-carousel-button"
-                        onClick={() => scrollProducts("right")}
-                        aria-label="Produits suivants"
-                      >
-                        →
-                      </button>
+                      Produits
                     </div>
                   </div>
-                  <div ref={productsStripRef} className="restaurant-products-strip">
-                    {filteredMenu.slice(0, 10).map((menuItem) => (
-                      <article key={menuItem.id} className="restaurant-product-card">
-                        <img
-                          className="restaurant-product-image"
-                          src={imageUrlFromMenuItem(menuItem.id)}
-                          alt={menuItem.name}
-                          loading="lazy"
-                        />
+                  <div className="restaurant-products-strip">
+                    {filteredMenu.map((menuItem) => (
+                      <article
+                        key={menuItem.id}
+                        className={`restaurant-product-card ${selectedMenuItemId === menuItem.id ? "active" : ""}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openProductDetails(menuItem.id)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          openProductDetails(menuItem.id);
+                        }}
+                        aria-label={`Voir les details de ${menuItem.name}`}
+                      >
+                        {menuItem.imageUrl ? (
+                          <img
+                            className="restaurant-product-image"
+                            src={menuItem.imageUrl}
+                            alt={menuItem.name}
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="restaurant-product-image restaurant-product-image-placeholder">Image non disponible</div>
+                        )}
                         <button
                           type="button"
                           className="restaurant-product-add"
-                          onClick={() => onAddToCart(menuItem.id)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onAddToCart(menuItem.id);
+                          }}
                           disabled={menuItem.dailyStock <= 0 || isCartLockedToAnotherRestaurant}
                         >
                           +
                         </button>
                         <div className="restaurant-product-price">{euros(menuItem.priceCents)}</div>
                         <div className="restaurant-product-name">{menuItem.name}</div>
+                        <div
+                          className={`restaurant-client-availability ${
+                            menuItem.dailyStock <= 0 ? "unavailable" : "available"
+                          }`}
+                        >
+                          {menuItem.dailyStock <= 0 ? "Indisponible" : "Disponible"}
+                        </div>
+
+                        {selectedMenuItemId === menuItem.id ? (
+                          <div className="restaurant-product-inline-details">
+                            <div className="restaurant-product-details-body">
+                              {menuItem.description ? (
+                                <div>
+                                  <strong>Description:</strong> {menuItem.description}
+                                </div>
+                              ) : null}
+                              <div>
+                                <strong>Allergenes:</strong>{" "}
+                                {menuItem.allergens.length > 0
+                                  ? menuItem.allergens.join(", ")
+                                  : "Non renseignes"}
+                              </div>
+                              <div>
+                                <strong>Statut:</strong>{" "}
+                                {menuItem.dailyStock <= 0 ? "Indisponible" : "Disponible"}
+                              </div>
+                            </div>
+                            <div className="restaurant-product-details-actions">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onAddToCart(menuItem.id);
+                                }}
+                                disabled={menuItem.dailyStock <= 0 || isCartLockedToAnotherRestaurant}
+                              >
+                                {menuItem.dailyStock <= 0 ? "Indisponible" : "Ajouter au panier"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                       </article>
                     ))}
                   </div>
@@ -468,37 +326,6 @@ export function RestaurantSection({
               Votre panier contient deja des articles d'un autre restaurant. Videz le panier pour ajouter ici.
             </div>
           ) : null}
-
-          <div style={{ fontWeight: 700, marginBottom: 10 }}>Toutes les propositions du restaurant</div>
-
-          <div className="items restaurant-detail-menu-grid">
-            {Object.entries(menuGroupedByCategory).map(([categoryName, menuItems]) => (
-              <div key={categoryName} className="restaurant-category-block">
-                <div className="restaurant-category-heading">{categoryName}</div>
-                <div className="restaurant-category-items">
-                  {menuItems.map((menuItem) => (
-                    <div key={menuItem.id} className="card" style={{ padding: 12 }}>
-                      <div className="row">
-                        <div>
-                          <div style={{ fontWeight: 700 }}>{menuItem.name}</div>
-                          <div className="muted">{menuItem.description}</div>
-                          <div className="muted">
-                            {euros(menuItem.priceCents)} • stock {menuItem.dailyStock}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => onAddToCart(menuItem.id)}
-                          disabled={menuItem.dailyStock <= 0 || isCartLockedToAnotherRestaurant}
-                        >
-                          Ajouter
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
         </>
       )}
     </div>

@@ -6,16 +6,26 @@ import { type MenuItem, type Restaurant } from "../../../domain/entities/restaur
 import {
   type CartRepository,
   type AccountRepository,
+  type ClientProfileRepository,
   type CourierRepository,
+  type CourierProfileRepository,
   type InvoiceRepository,
   type MenuRepository,
   type OrderRepository,
   type RestaurantRepository,
+  type RestaurantProfileRepository,
 } from "../../../application/ports/repositories.js";
-import { type MemoryStore } from "./memory-store.js";
+import { type MemoryStore, type AccountProfile } from "./memory-store.js";
+
+const ORDER_STATUS_PREPARING = "PREPARING";
+const ORDER_STATUS_READY_FOR_PICKUP = "READY_FOR_PICKUP";
+const COURIER_STATUS_AVAILABLE = "AVAILABLE";
 
 export function createInMemoryRepositories(store: MemoryStore): Readonly<{
   accounts: AccountRepository;
+  clientProfiles: ClientProfileRepository;
+  courierProfiles: CourierProfileRepository;
+  restaurantProfiles: RestaurantProfileRepository;
   restaurants: RestaurantRepository;
   menus: MenuRepository;
   carts: CartRepository;
@@ -39,18 +49,60 @@ export function createInMemoryRepositories(store: MemoryStore): Readonly<{
     },
   };
 
+  const clientProfiles: ClientProfileRepository = {
+    async create(profile: AccountProfile): Promise<void> {
+      store.clientProfiles.set(profile.accountId, profile);
+    },
+    async getByAccountId(accountId: string): Promise<AccountProfile | null> {
+      return store.clientProfiles.get(accountId) ?? null;
+    },
+  };
+
+  const courierProfiles: CourierProfileRepository = {
+    async create(profile: AccountProfile): Promise<void> {
+      store.courierProfiles.set(profile.accountId, profile);
+    },
+    async getByAccountId(accountId: string): Promise<AccountProfile | null> {
+      return store.courierProfiles.get(accountId) ?? null;
+    },
+  };
+
+  const restaurantProfiles: RestaurantProfileRepository = {
+    async create(profile: AccountProfile): Promise<void> {
+      store.restaurantProfiles.set(profile.accountId, profile);
+    },
+    async getByAccountId(accountId: string): Promise<AccountProfile | null> {
+      return store.restaurantProfiles.get(accountId) ?? null;
+    },
+  };
+
   const restaurants: RestaurantRepository = {
     async listRestaurants(): Promise<readonly Restaurant[]> {
-      return [...store.restaurants.values()];
+      return [...store.restaurants.values()].map((restaurant) => {
+        const profile = store.restaurantProfiles.get(restaurant.id);
+        const profileName = profile?.lastName?.trim();
+        if (!profileName) return restaurant;
+        return { ...restaurant, name: profileName };
+      });
     },
     async getRestaurant(id: string): Promise<Restaurant | null> {
-      return store.restaurants.get(id) ?? null;
+      const restaurant = store.restaurants.get(id);
+      if (!restaurant) return null;
+      const profile = store.restaurantProfiles.get(id);
+      const profileName = profile?.lastName?.trim();
+      if (!profileName) return restaurant;
+      return { ...restaurant, name: profileName };
+    },
+    async create(restaurant: Restaurant): Promise<void> {
+      store.restaurants.set(restaurant.id, restaurant);
     },
   };
 
   const menus: MenuRepository = {
     async listMenuItems(restaurantId: string): Promise<readonly MenuItem[]> {
-      return [...store.menuItems.values()].filter((m) => m.restaurantId === restaurantId);
+      return [...store.menuItems.values()].filter(
+        (menuItem) => menuItem.restaurantId === restaurantId
+      );
     },
     async getMenuItem(id: string): Promise<MenuItem | null> {
       return store.menuItems.get(id) ?? null;
@@ -92,11 +144,15 @@ export function createInMemoryRepositories(store: MemoryStore): Readonly<{
       store.orders.set(order.id, order);
     },
     async listByRestaurant(restaurantId: string): Promise<readonly Order[]> {
-      return [...store.orders.values()].filter((o) => o.restaurantId === restaurantId);
+      return [...store.orders.values()].filter(
+        (order) => order.restaurantId === restaurantId
+      );
     },
     async listReadyOrPreparing(): Promise<readonly Order[]> {
       return [...store.orders.values()].filter(
-        (o) => o.status === "PREPARING" || o.status === "READY_FOR_PICKUP"
+        (order) =>
+          order.status === ORDER_STATUS_PREPARING ||
+          order.status === ORDER_STATUS_READY_FOR_PICKUP
       );
     },
   };
@@ -118,10 +174,12 @@ export function createInMemoryRepositories(store: MemoryStore): Readonly<{
       store.couriers.set(courier.id, courier);
     },
     async listAvailable(): Promise<readonly Courier[]> {
-      return [...store.couriers.values()].filter((c) => c.status === "AVAILABLE");
+      return [...store.couriers.values()].filter(
+        (courier) => courier.status === COURIER_STATUS_AVAILABLE
+      );
     },
   };
 
-  return { accounts, restaurants, menus, carts, orders, invoices, couriers };
+  return { accounts, clientProfiles, courierProfiles, restaurantProfiles, restaurants, menus, carts, orders, invoices, couriers };
 }
 

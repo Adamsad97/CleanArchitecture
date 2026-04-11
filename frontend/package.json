@@ -4,9 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "dev:front": "npm run dev:services",
+    "dev:services": "npm run dev",
     "dev:frontend": "vite",
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:front": "npm run build",
     "preview": "vite preview"
   },
   "dependencies": {

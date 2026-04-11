@@ -22,6 +22,8 @@ export type PricingPolicy = Readonly<{
 export type CheckoutInput = Readonly<{
   clientId: string;
   deliveryAddress: { lat: number; lng: number };
+  fulfillmentType?: "DELIVERY" | "PICKUP";
+  paymentMethod?: "CARD" | "PAYPAL" | "MOBILE_MONEY" | "CASH";
   tipCents?: number;
 }>;
 
@@ -51,16 +53,17 @@ export async function checkout(
   const restaurant = await deps.restaurants.getRestaurant(cart.restaurantId);
   if (!restaurant) return Result.err(new RestaurantNotFoundError());
 
-  const menuItemsById = new Map<string, { name: string; priceCents: number; dailyStock: number }>();
-  for (const item of await deps.menus.listMenuItems(cart.restaurantId)) {
-    menuItemsById.set(item.id, { name: item.name, priceCents: item.priceCents, dailyStock: item.dailyStock });
+  const menuItemsById = new Map<string, { name: string; priceCents: number }>();
+  for (const menuItem of await deps.menus.listMenuItems(cart.restaurantId)) {
+    menuItemsById.set(menuItem.id, {
+      name: menuItem.name,
+      priceCents: menuItem.priceCents,
+    });
   }
 
   for (const cartItem of cart.items) {
-    const mi = menuItemsById.get(cartItem.menuItemId);
-    if (!mi) return Result.err(new MenuItemOutOfStockError());
-    if (mi.dailyStock <= 0) return Result.err(new MenuItemOutOfStockError());
-    if (mi.dailyStock < cartItem.quantity) return Result.err(new MenuItemOutOfStockError());
+    const menuItemSnapshot = menuItemsById.get(cartItem.menuItemId);
+    if (!menuItemSnapshot) return Result.err(new MenuItemOutOfStockError());
   }
 
   const itemsTotalCents = cart.items.reduce(
@@ -68,12 +71,18 @@ export async function checkout(
     0
   );
 
-  const km = await deps.distance.distanceKm(restaurant.location, input.deliveryAddress);
-  const deliveryFeeCents =
-    deps.pricing.deliveryBaseFeeCents + Math.round(km * deps.pricing.deliveryPerKmCents);
+  const fulfillmentType = input.fulfillmentType ?? "DELIVERY";
+  const paymentMethod = input.paymentMethod ?? "CARD";
+
+  let deliveryFeeCents = 0;
+  if (fulfillmentType === "DELIVERY") {
+    const deliveryDistanceKm = await deps.distance.distanceKm(restaurant.location, input.deliveryAddress);
+    deliveryFeeCents =
+      deps.pricing.deliveryBaseFeeCents + Math.round(deliveryDistanceKm * deps.pricing.deliveryPerKmCents);
+  }
 
   const serviceFeeCents = Math.round(itemsTotalCents * deps.pricing.serviceFeeRate);
-  const tipCents = input.tipCents ?? 0;
+  const tipCents = fulfillmentType === "DELIVERY" ? input.tipCents ?? 0 : 0;
   const totalCents = itemsTotalCents + deliveryFeeCents + serviceFeeCents + tipCents;
 
   const orderId = deps.ids.newId();
@@ -83,15 +92,17 @@ export async function checkout(
     id: orderId,
     clientId: input.clientId,
     restaurantId: cart.restaurantId,
+    fulfillmentType,
+    paymentMethod,
     deliveryAddress: input.deliveryAddress,
     status: "PAID",
-    lines: cart.items.map((ci) => {
-      const mi = menuItemsById.get(ci.menuItemId)!;
+    lines: cart.items.map((cartLineItem) => {
+      const menuItemSnapshot = menuItemsById.get(cartLineItem.menuItemId)!;
       return {
-        menuItemId: ci.menuItemId,
-        name: mi.name,
-        unitPriceCents: ci.unitPriceCents,
-        quantity: ci.quantity,
+        menuItemId: cartLineItem.menuItemId,
+        name: menuItemSnapshot.name,
+        unitPriceCents: cartLineItem.unitPriceCents,
+        quantity: cartLineItem.quantity,
       };
     }),
     prepTimeMinutes: null,
@@ -104,38 +115,30 @@ export async function checkout(
     courierId: null,
   };
 
-  await deps.payments.simulatePayment({ orderId, amountCents: totalCents });
-  await deps.orders.create(order);
+  try {
+    await deps.payments.simulatePayment({ orderId, amountCents: totalCents, paymentMethod });
+    await deps.orders.create(order);
 
-  // Décrémentation du stock journalier des plats achetés
-  for (const line of order.lines) {
-    const current = await deps.menus.getMenuItem(line.menuItemId);
-    if (!current || current.dailyStock < line.quantity) {
-      return Result.err(new MenuItemOutOfStockError());
-    }
-    await deps.menus.upsertMenuItem({
-      ...current,
-      dailyStock: current.dailyStock - line.quantity,
-    });
+    const invoice: Invoice = {
+      id: invoiceId,
+      orderId,
+      createdAt: deps.clock.nowIso(),
+      lines: [
+        ...order.lines.map((orderLine) => ({
+          label: `${orderLine.quantity} x ${orderLine.name}`,
+          amountCents: orderLine.unitPriceCents * orderLine.quantity,
+        })),
+        ...(deliveryFeeCents > 0 ? [{ label: "Frais de livraison", amountCents: deliveryFeeCents }] : []),
+        { label: "Frais de service", amountCents: serviceFeeCents },
+        ...(tipCents > 0 ? [{ label: "Pourboire", amountCents: tipCents }] : []),
+      ],
+      totalCents,
+    };
+    await deps.invoices.create(invoice);
+    await deps.carts.clearCart(input.clientId);
+  } catch (error) {
+    throw error;
   }
-
-  const invoice: Invoice = {
-    id: invoiceId,
-    orderId,
-    createdAt: deps.clock.nowIso(),
-    lines: [
-      ...order.lines.map((l) => ({
-        label: `${l.quantity} x ${l.name}`,
-        amountCents: l.unitPriceCents * l.quantity,
-      })),
-      { label: "Frais de livraison", amountCents: deliveryFeeCents },
-      { label: "Frais de service", amountCents: serviceFeeCents },
-      ...(tipCents > 0 ? [{ label: "Pourboire", amountCents: tipCents }] : []),
-    ],
-    totalCents,
-  };
-  await deps.invoices.create(invoice);
-  await deps.carts.clearCart(input.clientId);
 
   return Result.ok({ orderId, invoiceId });
 }

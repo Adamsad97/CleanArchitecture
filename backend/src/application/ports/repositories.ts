@@ -1,5 +1,6 @@
 import { type Cart } from "../../domain/entities/cart.js";
 import { type Account } from "../../domain/entities/account.js";
+import { type AccountProfile } from "../../domain/entities/account-profile.js";
 import { type Courier } from "../../domain/entities/courier.js";
 import { type Invoice, type Order, type OrderId } from "../../domain/entities/order.js";
 import {
@@ -12,6 +13,7 @@ import {
 export type RestaurantRepository = {
   listRestaurants(): Promise<readonly Restaurant[]>;
   getRestaurant(id: RestaurantId): Promise<Restaurant | null>;
+  create(restaurant: Restaurant): Promise<void>;
 };
 
 export type MenuRepository = {
@@ -50,5 +52,20 @@ export type AccountRepository = {
   getById(id: string): Promise<Account | null>;
   getByEmail(email: string): Promise<Account | null>;
   create(account: Account): Promise<void>;
+};
+
+export type ClientProfileRepository = {
+  create(profile: AccountProfile): Promise<void>;
+  getByAccountId(accountId: string): Promise<AccountProfile | null>;
+};
+
+export type RestaurantProfileRepository = {
+  create(profile: AccountProfile): Promise<void>;
+  getByAccountId(accountId: string): Promise<AccountProfile | null>;
+};
+
+export type CourierProfileRepository = {
+  create(profile: AccountProfile): Promise<void>;
+  getByAccountId(accountId: string): Promise<AccountProfile | null>;
 };
 

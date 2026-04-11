@@ -20,7 +20,7 @@ export class MenuItemOutOfStockError extends DomainError {
   readonly code = "MENU_ITEM_OUT_OF_STOCK";
 
   constructor() {
-    super("Le plat n'est plus disponible (stock journalier épuisé).");
+    super("Le plat n'est plus disponible.");
   }
 }
 
@@ -93,6 +93,14 @@ export class InvalidAccountTypeSelectionError extends DomainError {
 
   constructor() {
     super("Selection de type de compte invalide.");
+  }
+}
+
+export class InvalidPaymentDetailsError extends DomainError {
+  readonly code = "PAYMENT_INVALID_DETAILS";
+
+  constructor(message = "Informations de paiement invalides.") {
+    super(message);
   }
 }
 

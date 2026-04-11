@@ -8,7 +8,7 @@ Projet pédagogique basé sur le document **EcoEats (2026)**.
 - Clean Architecture (Domain / Application / Interface / Infrastructure)
 - Démontrer le _plug & play_
   - 2 frameworks HTTP: **Express** et **Fastify**
-  - 2 adaptateurs DB: **InMemory** et **SQLite (sql.js)**
+  - 3 adaptateurs DB: **InMemory**, **SQLite (sql.js)** et **PostgreSQL**
 
 ## Démarrage
 
@@ -16,6 +16,36 @@ Dans `backend/`:
 
 ```bash
 npm install
+```
+
+### Full stack Docker (une commande par BD)
+
+Depuis la racine du projet:
+
+```bash
+# Memory
+docker compose --profile memory up --build
+
+# SQLite
+docker compose --profile sqlite up --build
+
+# PostgreSQL
+docker compose --profile postgres up --build
+```
+
+Acces (quel que soit le profil):
+
+- Frontend: `http://localhost:5173`
+- Backend (health): `http://localhost:3002/health`
+
+Specifique PostgreSQL:
+
+- PostgreSQL: `localhost:5433`
+
+Pour arreter:
+
+```bash
+docker compose --profile <memory|sqlite|postgres> down
 ```
 
 Lancement du Back et du Front
@@ -48,7 +78,32 @@ npm run dev:fastify
 Copie `.env.example` vers `.env` puis:
 
 ```bash
-DB=sqlite SQLITE_PATH=./ecoeats.sqlite npm run dev:express
+DATABASE=sqlite SQLITE_PATH=./ecoeats.sqlite npm run dev:express
+```
+
+### PostgreSQL
+
+Copie `.env.example` vers `.env` puis:
+
+```bash
+DATABASE=postgres POSTGRES_URL=postgres://postgres:postgres@localhost:5433/ecoeats npm run dev:express
+```
+
+### PostgreSQL avec Docker (recommande)
+
+Depuis `backend/`:
+
+```bash
+npm run db:up
+npm run dev:express
+```
+
+Le service PostgreSQL est defini dans [docker-compose.yml](../docker-compose.yml).
+
+Pour arreter:
+
+```bash
+npm run db:down
 ```
 
 ## Endpoints (démo)
@@ -61,6 +116,17 @@ DB=sqlite SQLITE_PATH=./ecoeats.sqlite npm run dev:express
 - `DELETE /cart?clientId=...`
 - `POST /checkout`
 - `GET /invoices/:id`
+
+### Paiement
+
+- `POST /payments/card/verify`
+- `POST /payments/card/visa/verify`
+- `POST /payments/card/mastercard/verify`
+- `POST /payments/paypal/verify`
+- `POST /payments/mobile-money/verify`
+- `POST /payments/mobile-money/orange-money/verify`
+- `POST /payments/mobile-money/wave/verify`
+- `POST /payments/cash/verify`
 
 ### Restaurateur
 

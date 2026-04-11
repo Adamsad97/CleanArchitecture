@@ -1,20 +1,22 @@
 export type LatLng = { readonly lat: number; readonly lng: number };
 
+const DEGREES_TO_RADIANS_FACTOR = Math.PI / 180;
+const EARTH_RADIUS_KM = 6371;
+
 export function haversineDistanceKm(a: LatLng, b: LatLng): number {
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const R = 6371;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
+  const convertDegreesToRadians = (degrees: number) => degrees * DEGREES_TO_RADIANS_FACTOR;
+  const latitudeDeltaRadians = convertDegreesToRadians(b.lat - a.lat);
+  const longitudeDeltaRadians = convertDegreesToRadians(b.lng - a.lng);
+  const sourceLatitudeRadians = convertDegreesToRadians(a.lat);
+  const targetLatitudeRadians = convertDegreesToRadians(b.lat);
 
-  const sinDLat = Math.sin(dLat / 2);
-  const sinDLng = Math.sin(dLng / 2);
+  const sineOfHalfLatitudeDelta = Math.sin(latitudeDeltaRadians / 2);
+  const sineOfHalfLongitudeDelta = Math.sin(longitudeDeltaRadians / 2);
 
-  const h =
-    sinDLat * sinDLat +
-    Math.cos(lat1) * Math.cos(lat2) * (sinDLng * sinDLng);
-  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-  return R * c;
+  const haversineValue =
+    sineOfHalfLatitudeDelta * sineOfHalfLatitudeDelta +
+    Math.cos(sourceLatitudeRadians) * Math.cos(targetLatitudeRadians) * (sineOfHalfLongitudeDelta * sineOfHalfLongitudeDelta);
+  const centralAngleRadians = 2 * Math.atan2(Math.sqrt(haversineValue), Math.sqrt(1 - haversineValue));
+  return EARTH_RADIUS_KM * centralAngleRadians;
 }
 

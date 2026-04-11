@@ -12,11 +12,11 @@ export async function addItemToCart(deps, input) {
     if (cart.restaurantId && cart.restaurantId !== menuItem.restaurantId) {
         return Result.err(new CartRestaurantMismatchError());
     }
-    const existing = cart.items.find((i) => i.menuItemId === input.menuItemId);
-    const nextItems = existing
-        ? cart.items.map((i) => i.menuItemId === input.menuItemId
-            ? { ...i, quantity: i.quantity + input.quantity }
-            : i)
+    const existingCartItem = cart.items.find((cartItem) => cartItem.menuItemId === input.menuItemId);
+    const nextItems = existingCartItem
+        ? cart.items.map((cartItem) => cartItem.menuItemId === input.menuItemId
+            ? { ...cartItem, quantity: cartItem.quantity + input.quantity }
+            : cartItem)
         : [
             ...cart.items,
             {

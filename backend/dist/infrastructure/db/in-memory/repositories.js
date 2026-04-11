@@ -1,3 +1,6 @@
+const ORDER_STATUS_PREPARING = "PREPARING";
+const ORDER_STATUS_READY_FOR_PICKUP = "READY_FOR_PICKUP";
+const COURIER_STATUS_AVAILABLE = "AVAILABLE";
 export function createInMemoryRepositories(store) {
     const accounts = {
         async getById(id) {
@@ -15,17 +18,57 @@ export function createInMemoryRepositories(store) {
             store.accounts.set(account.id, account);
         },
     };
+    const clientProfiles = {
+        async create(profile) {
+            store.clientProfiles.set(profile.accountId, profile);
+        },
+        async getByAccountId(accountId) {
+            return store.clientProfiles.get(accountId) ?? null;
+        },
+    };
+    const courierProfiles = {
+        async create(profile) {
+            store.courierProfiles.set(profile.accountId, profile);
+        },
+        async getByAccountId(accountId) {
+            return store.courierProfiles.get(accountId) ?? null;
+        },
+    };
+    const restaurantProfiles = {
+        async create(profile) {
+            store.restaurantProfiles.set(profile.accountId, profile);
+        },
+        async getByAccountId(accountId) {
+            return store.restaurantProfiles.get(accountId) ?? null;
+        },
+    };
     const restaurants = {
         async listRestaurants() {
-            return [...store.restaurants.values()];
+            return [...store.restaurants.values()].map((restaurant) => {
+                const profile = store.restaurantProfiles.get(restaurant.id);
+                const profileName = profile?.lastName?.trim();
+                if (!profileName)
+                    return restaurant;
+                return { ...restaurant, name: profileName };
+            });
         },
         async getRestaurant(id) {
-            return store.restaurants.get(id) ?? null;
+            const restaurant = store.restaurants.get(id);
+            if (!restaurant)
+                return null;
+            const profile = store.restaurantProfiles.get(id);
+            const profileName = profile?.lastName?.trim();
+            if (!profileName)
+                return restaurant;
+            return { ...restaurant, name: profileName };
+        },
+        async create(restaurant) {
+            store.restaurants.set(restaurant.id, restaurant);
         },
     };
     const menus = {
         async listMenuItems(restaurantId) {
-            return [...store.menuItems.values()].filter((m) => m.restaurantId === restaurantId);
+            return [...store.menuItems.values()].filter((menuItem) => menuItem.restaurantId === restaurantId);
         },
         async getMenuItem(id) {
             return store.menuItems.get(id) ?? null;
@@ -63,10 +106,11 @@ export function createInMemoryRepositories(store) {
             store.orders.set(order.id, order);
         },
         async listByRestaurant(restaurantId) {
-            return [...store.orders.values()].filter((o) => o.restaurantId === restaurantId);
+            return [...store.orders.values()].filter((order) => order.restaurantId === restaurantId);
         },
         async listReadyOrPreparing() {
-            return [...store.orders.values()].filter((o) => o.status === "PREPARING" || o.status === "READY_FOR_PICKUP");
+            return [...store.orders.values()].filter((order) => order.status === ORDER_STATUS_PREPARING ||
+                order.status === ORDER_STATUS_READY_FOR_PICKUP);
         },
     };
     const invoices = {
@@ -85,8 +129,8 @@ export function createInMemoryRepositories(store) {
             store.couriers.set(courier.id, courier);
         },
         async listAvailable() {
-            return [...store.couriers.values()].filter((c) => c.status === "AVAILABLE");
+            return [...store.couriers.values()].filter((courier) => courier.status === COURIER_STATUS_AVAILABLE);
         },
     };
-    return { accounts, restaurants, menus, carts, orders, invoices, couriers };
+    return { accounts, clientProfiles, courierProfiles, restaurantProfiles, restaurants, menus, carts, orders, invoices, couriers };
 }

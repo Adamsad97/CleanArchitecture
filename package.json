@@ -1,0 +1,13 @@
+{
+  "name": "ecoeats-root",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:back": "cd backend && npm run dev:services",
+    "dev:express": "cd backend && npm run dev:express",
+    "dev:fastify": "cd backend && npm run dev:fastify",
+    "dev:front": "cd frontend && npm run dev:services",
+    "build:back": "cd backend && npm run build",
+    "build:front": "cd frontend && npm run build"
+  }
+}

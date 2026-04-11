@@ -10,37 +10,39 @@ export type SqliteDb = {
 };
 
 export async function openSqliteDb(filePath: string): Promise<SqliteDb> {
-  const SQL = await initSqlJs();
-  const fileExists = existsSync(filePath);
-  const db = fileExists ? new SQL.Database(readFileSync(filePath)) : new SQL.Database();
+  const sqliteLibrary = await initSqlJs();
+  const sqliteFileExists = existsSync(filePath);
+  const sqliteDatabase = sqliteFileExists
+    ? new sqliteLibrary.Database(readFileSync(filePath))
+    : new sqliteLibrary.Database();
 
   const wrapper: SqliteDb = {
     exec(sql: string) {
-      return db.exec(sql);
+      return sqliteDatabase.exec(sql);
     },
     run(sql: string, params?: any[]) {
-      const stmt = db.prepare(sql);
-      stmt.run(params ?? []);
-      stmt.free();
+      const statement = sqliteDatabase.prepare(sql);
+      statement.run(params ?? []);
+      statement.free();
     },
     get<T>(sql: string, params?: any[]) {
-      const stmt = db.prepare(sql);
-      stmt.bind(params ?? []);
-      const row = stmt.step() ? (stmt.getAsObject() as any) : undefined;
-      stmt.free();
-      return row as T | undefined;
+      const statement = sqliteDatabase.prepare(sql);
+      statement.bind(params ?? []);
+      const resultRow = statement.step() ? (statement.getAsObject() as any) : undefined;
+      statement.free();
+      return resultRow as T | undefined;
     },
     all<T>(sql: string, params?: any[]) {
-      const stmt = db.prepare(sql);
-      stmt.bind(params ?? []);
-      const rows: T[] = [];
-      while (stmt.step()) rows.push(stmt.getAsObject() as any);
-      stmt.free();
-      return rows;
+      const statement = sqliteDatabase.prepare(sql);
+      statement.bind(params ?? []);
+      const resultRows: T[] = [];
+      while (statement.step()) resultRows.push(statement.getAsObject() as any);
+      statement.free();
+      return resultRows;
     },
     persist() {
-      const data = db.export();
-      writeFileSync(filePath, Buffer.from(data));
+      const exportedDatabaseBytes = sqliteDatabase.export();
+      writeFileSync(filePath, Buffer.from(exportedDatabaseBytes));
     },
   };
 
@@ -63,12 +65,43 @@ function initSchema(db: SqliteDb): void {
       account_json TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS client_profiles (
+      account_id TEXT PRIMARY KEY,
+      first_name TEXT NOT NULL,
+      last_name TEXT NOT NULL,
+      birth_date TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      full_name TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS restaurant_profiles (
+      account_id TEXT PRIMARY KEY,
+      first_name TEXT NOT NULL,
+      last_name TEXT NOT NULL,
+      birth_date TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      full_name TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS courier_profiles (
+      account_id TEXT PRIMARY KEY,
+      first_name TEXT NOT NULL,
+      last_name TEXT NOT NULL,
+      birth_date TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      full_name TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS menu_items (
       id TEXT PRIMARY KEY,
       restaurant_id TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT NOT NULL,
       price_cents INTEGER NOT NULL,
+      image_url TEXT,
       allergens_json TEXT NOT NULL,
       daily_stock INTEGER NOT NULL
     );
@@ -93,5 +126,98 @@ function initSchema(db: SqliteDb): void {
       courier_json TEXT NOT NULL
     );
   `);
+
+  ensureLegacyAccountsSchema(db);
+  ensureLegacyProfileTables(db);
+  ensureLegacyMenuItemsSchema(db);
+}
+
+function ensureLegacyAccountsSchema(db: SqliteDb): void {
+  const accountColumns = db.all<{ name: string }>("PRAGMA table_info(accounts)");
+  const hasEmailColumn = accountColumns.some((column) => column.name === "email");
+
+  if (!hasEmailColumn) {
+    db.exec("ALTER TABLE accounts ADD COLUMN email TEXT");
+  }
+
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_email ON accounts(email)");
+
+  const missingEmailRows = db.all<{ id: string; account_json: string }>(
+    "SELECT id, account_json FROM accounts WHERE email IS NULL OR email = ''"
+  );
+
+  for (const accountRow of missingEmailRows) {
+    try {
+      const account = JSON.parse(accountRow.account_json) as { email?: unknown };
+      if (typeof account.email !== "string") continue;
+      const normalizedEmail = account.email.trim().toLowerCase();
+      if (!normalizedEmail) continue;
+      db.run("UPDATE accounts SET email=? WHERE id=?", [normalizedEmail, accountRow.id]);
+    } catch {
+      // Keep legacy row untouched if JSON is invalid.
+    }
+  }
+
+  db.persist();
+}
+
+function ensureLegacyProfileTables(db: SqliteDb): void {
+  const accounts = db.all<{
+    id: string;
+    account_json: string;
+  }>("SELECT id, account_json FROM accounts");
+
+  for (const accountRow of accounts) {
+    try {
+      const account = JSON.parse(accountRow.account_json) as {
+        firstName?: unknown;
+        lastName?: unknown;
+        birthDate?: unknown;
+        phone?: unknown;
+        fullName?: unknown;
+        createdAt?: unknown;
+        role?: unknown;
+      };
+
+      const profileTable = getProfileTableName(account.role);
+      if (!profileTable) continue;
+
+      const firstName = typeof account.firstName === "string" ? account.firstName : null;
+      const lastName = typeof account.lastName === "string" ? account.lastName : null;
+      const birthDate = typeof account.birthDate === "string" ? account.birthDate : null;
+      const phone = typeof account.phone === "string" ? account.phone : null;
+      const fullName = typeof account.fullName === "string" ? account.fullName : null;
+      const createdAt = typeof account.createdAt === "string" ? account.createdAt : null;
+
+      if (!firstName || !lastName || !birthDate || !phone || !fullName || !createdAt) continue;
+
+      db.run(
+        `INSERT INTO ${profileTable}(account_id, first_name, last_name, birth_date, phone, full_name, created_at)
+         VALUES(?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(account_id) DO NOTHING`,
+        [accountRow.id, firstName, lastName, birthDate, phone, fullName, createdAt]
+      );
+    } catch {
+      // Ignore legacy malformed rows.
+    }
+  }
+
+  db.persist();
+}
+
+function ensureLegacyMenuItemsSchema(db: SqliteDb): void {
+  const menuItemColumns = db.all<{ name: string }>("PRAGMA table_info(menu_items)");
+  const hasImageUrlColumn = menuItemColumns.some((column) => column.name === "image_url");
+  if (!hasImageUrlColumn) {
+    db.exec("ALTER TABLE menu_items ADD COLUMN image_url TEXT");
+    db.persist();
+  }
+}
+
+function getProfileTableName(role: unknown): string | null {
+  if (role === "CLIENT") return "client_profiles";
+  if (role === "COURIER") return "courier_profiles";
+  if (role === "RESTAURANT") return "restaurant_profiles";
+  return null;
 }
 

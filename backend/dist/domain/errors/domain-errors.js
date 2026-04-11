@@ -12,7 +12,7 @@ export class CartRestaurantMismatchError extends DomainError {
 export class MenuItemOutOfStockError extends DomainError {
     code = "MENU_ITEM_OUT_OF_STOCK";
     constructor() {
-        super("Le plat n'est plus disponible (stock journalier épuisé).");
+        super("Le plat n'est plus disponible.");
     }
 }
 export class InvalidOrderStatusTransitionError extends DomainError {
@@ -67,5 +67,11 @@ export class InvalidAccountTypeSelectionError extends DomainError {
     code = "AUTH_INVALID_ACCOUNT_TYPE_SELECTION";
     constructor() {
         super("Selection de type de compte invalide.");
+    }
+}
+export class InvalidPaymentDetailsError extends DomainError {
+    code = "PAYMENT_INVALID_DETAILS";
+    constructor(message = "Informations de paiement invalides.") {
+        super(message);
     }
 }

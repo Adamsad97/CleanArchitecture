@@ -1,16 +1,25 @@
 import { Result, type Result as ResultT } from "../../../shared/result.js";
 import { type Account, type AccountRole } from "../../../domain/entities/account.js";
+import { type AccountProfile } from "../../../domain/entities/account-profile.js";
+import { type Restaurant } from "../../../domain/entities/restaurant.js";
 import {
   AccountEmailAlreadyUsedError,
   InvalidAccountTypeSelectionError,
 } from "../../../domain/errors/domain-errors.js";
-import { type AccountRepository } from "../../ports/repositories.js";
+import {
+  type AccountRepository,
+  type ClientProfileRepository,
+  type CourierProfileRepository,
+  type RestaurantRepository,
+  type RestaurantProfileRepository,
+} from "../../ports/repositories.js";
 import { type Clock, type IdGenerator } from "../../ports/services.js";
 
 export type RegisterAccountInput = Readonly<{
   firstName: string;
   lastName: string;
-  birthDate: string;
+  restaurantName?: string | undefined;
+  birthDate?: string | undefined;
   phone: string;
   email: string;
   password: string;
@@ -20,6 +29,10 @@ export type RegisterAccountInput = Readonly<{
 
 export type RegisterAccountDeps = Readonly<{
   accounts: AccountRepository;
+  restaurants: RestaurantRepository;
+  clientProfiles: ClientProfileRepository;
+  courierProfiles: CourierProfileRepository;
+  restaurantProfiles: RestaurantProfileRepository;
   ids: IdGenerator;
   clock: Clock;
 }>;
@@ -43,6 +56,11 @@ export async function registerAccount(
   }
 
   const normalizedEmail = input.email.trim().toLowerCase();
+  const normalizedBirthDate =
+    input.actorRole === "RESTAURANT"
+      ? input.birthDate?.trim() || deps.clock.nowIso().slice(0, 10)
+      : input.birthDate?.trim() || "";
+
   const existing = await deps.accounts.getByEmail(normalizedEmail);
   if (existing) return Result.err(new AccountEmailAlreadyUsedError());
 
@@ -50,7 +68,7 @@ export async function registerAccount(
     id: deps.ids.newId(),
     firstName: input.firstName.trim(),
     lastName: input.lastName.trim(),
-    birthDate: input.birthDate,
+    birthDate: normalizedBirthDate,
     phone: input.phone.trim(),
     fullName: `${input.firstName.trim()} ${input.lastName.trim()}`,
     email: normalizedEmail,
@@ -60,6 +78,16 @@ export async function registerAccount(
   };
 
   await deps.accounts.create(account);
+  await createProfileForRole(deps, account);
+
+  if (account.role === "RESTAURANT") {
+    const restaurant: Restaurant = {
+      id: account.id,
+      name: input.restaurantName?.trim() || account.fullName,
+      location: { lat: 48.8566, lng: 2.3522 },
+    };
+    await deps.restaurants.create(restaurant);
+  }
 
   return Result.ok({
     token: buildDemoToken(account.id),
@@ -82,4 +110,28 @@ function isValidRoleForAccountType(
 
 function buildDemoToken(accountId: string): string {
   return `demo-token-${accountId}`;
+}
+
+async function createProfileForRole(deps: RegisterAccountDeps, account: Account): Promise<void> {
+  const profile: AccountProfile = {
+    accountId: account.id,
+    firstName: account.firstName,
+    lastName: account.lastName,
+    birthDate: account.birthDate,
+    phone: account.phone,
+    fullName: account.fullName,
+    createdAt: account.createdAt,
+  };
+
+  if (account.role === "CLIENT") {
+    await deps.clientProfiles.create(profile);
+    return;
+  }
+
+  if (account.role === "COURIER") {
+    await deps.courierProfiles.create(profile);
+    return;
+  }
+
+  await deps.restaurantProfiles.create(profile);
 }

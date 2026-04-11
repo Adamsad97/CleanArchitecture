@@ -4,6 +4,7 @@ export type PaymentService = {
   simulatePayment(params: {
     readonly orderId: string;
     readonly amountCents: number;
+    readonly paymentMethod?: "CARD" | "PAYPAL" | "MOBILE_MONEY" | "CASH";
   }): Promise<void>;
 };
 

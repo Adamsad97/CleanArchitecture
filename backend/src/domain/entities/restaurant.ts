@@ -11,6 +11,7 @@ export type MenuItem = Readonly<{
   name: string;
   description: string;
   priceCents: number;
+  imageUrl: string | null;
   allergens: readonly Allergen[];
   dailyStock: number;
 }>;

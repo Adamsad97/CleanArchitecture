@@ -35,6 +35,8 @@ export type Order = Readonly<{
   id: OrderId;
   clientId: string;
   restaurantId: RestaurantId;
+  fulfillmentType?: "DELIVERY" | "PICKUP";
+  paymentMethod?: "CARD" | "PAYPAL" | "MOBILE_MONEY" | "CASH";
   deliveryAddress: LatLng;
   status: OrderStatus;
   lines: readonly OrderLine[];

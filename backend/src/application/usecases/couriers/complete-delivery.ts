@@ -37,9 +37,9 @@ export async function completeDelivery(
   const restaurant = await deps.restaurants.getRestaurant(order.restaurantId);
   if (!restaurant) return Result.err(new RestaurantNotFoundError());
 
-  const km = await deps.distance.distanceKm(restaurant.location, order.deliveryAddress);
+  const deliveryDistanceKm = await deps.distance.distanceKm(restaurant.location, order.deliveryAddress);
   const creditedCents =
-    deps.revenue.pickupFeeCents + Math.round(km * deps.revenue.perKmCents) + order.tipCents;
+    deps.revenue.pickupFeeCents + Math.round(deliveryDistanceKm * deps.revenue.perKmCents) + order.tipCents;
 
   const courier = await deps.couriers.get(params.courierId);
   if (!courier) return Result.err(new InvalidOrderStatusTransitionError());
